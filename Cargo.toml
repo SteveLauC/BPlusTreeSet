@@ -1,5 +1,5 @@
 [package]
-name = "b_plus_tree"
+name = "b_plus_tree_set"
 version = "0.1.0"
 edition = "2021"
 

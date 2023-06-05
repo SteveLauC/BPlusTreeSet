@@ -1,16 +1,15 @@
 use crate::{
     node::{Node, NodeKind},
-    range::Range,
     util::insert_into_vec,
 };
 use std::{
     borrow::Borrow,
     fmt::{Debug, Display, Formatter},
-    ops::RangeBounds,
     rc::Rc,
 };
 
-#[derive(Debug, Clone)]
+/// A set backed by  B+Tree.
+#[derive(Clone)]
 pub struct BPlusTreeSet<T> {
     root: Node<T>,
     order: usize,
@@ -18,6 +17,10 @@ pub struct BPlusTreeSet<T> {
 }
 
 impl<T> BPlusTreeSet<T> {
+    /// Create a B+Tree set with order set to `order`.
+    ///
+    /// # Panic
+    /// Will panci if `order` is smaller than 2.
     pub fn new(order: usize) -> Self {
         assert!(order >= 2);
 
@@ -29,6 +32,7 @@ impl<T> BPlusTreeSet<T> {
         }
     }
 
+    /// Return how many elements are stored in this set.
     #[inline]
     pub fn len(&self) -> usize {
         self.len
@@ -39,6 +43,11 @@ impl<T> BPlusTreeSet<T>
 where
     T: PartialOrd,
 {
+    /// Assume `value` exists in this B+TREE, traverse down to the leaf node
+    /// that contains `value`.
+    ///
+    /// Use this over `traverse_to_leaf_node_with_parents()` when you do not need
+    /// the collected parent nodes along the path.
     fn traverse_to_leaf_node<Q>(&self, value: &Q) -> Node<T>
     where
         Q: PartialOrd,
@@ -98,7 +107,7 @@ where
     /// 2. Split is no more triggered.
     fn insert_in_parent(&mut self, split: Node<T>, mut parents: Vec<Node<T>>, kp: (Rc<T>, Node<T>))
     where
-        T: Ord,
+        T: Ord + Debug,
     {
         if parents.is_empty() {
             // We are gonna do insertion on the parent node of `split`, but
@@ -109,6 +118,7 @@ where
             new_root_write_guard.keys.push(kp.0);
             new_root_write_guard.ptrs.extend([split, kp.1]);
             drop(new_root_write_guard);
+
             self.root = new_root;
         } else {
             let parent_of_split = parents.pop().expect("parents is not empty");
@@ -156,6 +166,9 @@ where
         }
     }
 
+    /// Insert `value` into the set.
+    ///
+    /// Return `true` if insertion is successful.
     pub fn insert(&mut self, value: T) -> bool
     where
         T: Ord + Debug,
@@ -212,9 +225,6 @@ where
             leaf_node_write_guard.keys.extend(tmp.drain(0..idx));
             leaf_node_plus_write_guard.keys = tmp;
 
-            // TODO: insert (K', A clone of leaf_node_plus) to the parent node of
-            // `leaf_node`
-
             // Duplication occurs here
             let k = Rc::clone(&leaf_node_plus_write_guard.keys[0]);
             drop(leaf_node_write_guard);
@@ -227,13 +237,8 @@ where
         true
     }
 
-    pub fn range<R>(&self, range: R) -> Range<'_, T>
-    where
-        R: RangeBounds<T>,
-    {
-        unimplemented!()
-    }
-
+    /// Removes a `value` from the set. Returns whether the value was present
+    /// in the set.
     pub fn remove<Q>(&mut self, value: &Q) -> bool
     where
         T: Borrow<Q>,
@@ -242,6 +247,8 @@ where
         self.take(value).is_some()
     }
 
+    /// Removes and returns the value in the set, if any, that is equal to the
+    /// given one.
     pub fn take<Q>(&mut self, value: &Q) -> Option<T>
     where
         T: Borrow<Q>,
@@ -250,6 +257,7 @@ where
         unimplemented!()
     }
 
+    /// Return `true` is `value` is present in this set.
     #[inline]
     pub fn contains<Q>(&self, value: &Q) -> bool
     where
@@ -261,10 +269,9 @@ where
     }
 }
 
-impl<T> Display for BPlusTreeSet<T>
-where
-    T: Debug,
-{
+impl<T: Debug> Debug for BPlusTreeSet<T> {
+    // Debug print.
+    // Print all the leaf nodes' keys.
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let mut ptr = Node::clone(&self.root);
 

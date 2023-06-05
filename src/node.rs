@@ -128,24 +128,13 @@ impl<T> Node<T> {
         write_guard.keys.insert(idx, value);
     }
 
-    /// Deeply copy a `Node`
-    pub(crate) fn deep_copy(&self) -> Self {
-        let self_read_guard = self.read();
-
-        Self {
-            inner: Rc::new(RefCell::new(InnerNode {
-                kind: self_read_guard.kind,
-                keys: self_read_guard.keys.clone(),
-                ptrs: self_read_guard.ptrs.clone(),
-            })),
-        }
-    }
-
+    /// Return this node's kind.
     #[inline]
     pub(crate) fn kind(&self) -> NodeKind {
         self.read().kind
     }
 
+    /// Set this node's kind to `kind`.
     #[inline]
     pub(crate) fn set_kind(&self, kind: NodeKind) {
         self.write().kind = kind;
