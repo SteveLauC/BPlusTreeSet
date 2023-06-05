@@ -1,9 +1,11 @@
 #![doc = include_str!("../README.md")]
 
+mod iter;
 mod node;
 mod tree;
 mod util;
 
+pub use iter::Iter;
 pub use tree::BPlusTreeSet;
 
 #[cfg(test)]

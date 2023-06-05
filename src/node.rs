@@ -2,6 +2,7 @@ use bitflags::{bitflags, Flags};
 use std::{
     borrow::Borrow,
     cell::{Ref, RefCell, RefMut},
+    fmt::{Debug, Formatter},
     ops::Deref,
     rc::Rc,
 };
@@ -26,9 +27,16 @@ pub(crate) struct InnerNode<T> {
 ///
 /// `Rc` is used as a leaf node can have more than 1 owner (Maybe 2? One is its
 /// parent node, the other one is the previous leaf node).
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq )]
+#[derive(Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) struct Node<T> {
     pub(crate) inner: Rc<RefCell<InnerNode<T>>>,
+}
+
+impl<T: Debug> Debug for Node<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let guard = self.read();
+        write!(f, "{:?}", *guard.deref())
+    }
 }
 
 impl<T> Node<T> {

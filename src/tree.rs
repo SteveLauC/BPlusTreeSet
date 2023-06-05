@@ -1,14 +1,15 @@
 use crate::{
+    iter::Iter,
     node::{Node, NodeKind},
     util::insert_into_vec,
 };
 use std::{
     borrow::Borrow,
-    fmt::{Debug, Display, Formatter},
+    fmt::{Debug, Formatter},
     rc::Rc,
 };
 
-/// A set backed by  B+Tree.
+/// A set backed by B+Tree.
 #[derive(Clone)]
 pub struct BPlusTreeSet<T> {
     root: Node<T>,
@@ -266,6 +267,31 @@ where
     {
         let leaf = self.traverse_to_leaf_node(value);
         leaf.contains(value)
+    }
+
+    /// An iterator visiting all elements in the set. The iterator element
+    /// type is `Rc<T>`.
+    pub fn iter(&self) -> Iter<'_, T>
+    where
+        T: Debug,
+    {
+        let mut ptr = Node::clone(&self.root);
+        while !ptr.is_leaf() {
+            let ptr_guard = ptr.read();
+            let next = Node::clone(
+                ptr_guard
+                    .ptrs
+                    .first()
+                    .expect("Should have at least 2 children"),
+            );
+            drop(ptr_guard);
+
+            ptr = next;
+        }
+        assert!(ptr.is_leaf());
+        let len = ptr.read().keys.len();
+
+        Iter::new(ptr, 0, len)
     }
 }
 
