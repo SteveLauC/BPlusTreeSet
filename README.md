@@ -4,7 +4,7 @@ A set implementation backed by B+Tree.
 
 ## API
 
-```rust
+```Rust
 pub fn new(order: usize) -> Self
 pub fn len(&self) -> usize
 pub fn insert(&mut self, value: T) -> bool
@@ -16,7 +16,8 @@ pub fn contains<Q>(&self, value: &Q) -> bool
 ## Basic Usage
 
 ```rust
-# use b_plus_tree_set::BPlusTreeSet;
+use b_plus_tree_set::BPlusTreeSet;
+
 let mut set = BPlusTreeSet::new(4);
 
 for i in 0..10 {
