@@ -11,6 +11,7 @@ pub use tree::BPlusTreeSet;
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::rc::Rc;
 
     #[test]
     fn new() {
@@ -22,6 +23,7 @@ mod test {
     #[test]
     fn insert() {
         let mut set = BPlusTreeSet::new(4);
+        assert!(set.is_empty());
 
         for i in 0..10 {
             assert!(!set.contains(&i));
@@ -34,5 +36,15 @@ mod test {
         }
 
         assert_eq!(set.len(), 10);
+    }
+
+    #[test]
+    fn get() {
+        let mut set = BPlusTreeSet::new(4);
+        assert!(set.get(&1).is_none());
+        assert!(set.insert(1));
+
+        let one = set.get(&1).unwrap();
+        assert_eq!(Rc::strong_count(&one), 2);
     }
 }

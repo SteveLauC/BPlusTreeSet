@@ -38,6 +38,12 @@ impl<T> BPlusTreeSet<T> {
     pub fn len(&self) -> usize {
         self.len
     }
+
+    /// Returns true if the set contains no elements.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl<T> BPlusTreeSet<T>
@@ -267,6 +273,22 @@ where
     {
         let leaf = self.traverse_to_leaf_node(value);
         leaf.contains(value)
+    }
+
+    /// Returns a `Rc` to the value in the set, if any.
+    pub fn get<Q>(&self, value: &Q) -> Option<Rc<T>>
+    where
+        T: Borrow<Q>,
+        Q: Ord,
+    {
+        let leaf = self.traverse_to_leaf_node(value);
+        let leaf_guard = leaf.read();
+        let idx = leaf_guard
+            .keys
+            .binary_search_by(|item| (item as &T).borrow().cmp(value))
+            .ok()?;
+
+        Some(Rc::clone(&leaf_guard.keys[idx]))
     }
 
     /// An iterator visiting all elements in the set. The iterator element
