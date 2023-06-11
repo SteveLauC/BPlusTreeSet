@@ -16,6 +16,7 @@ pub struct BPlusTreeSet<T> {
     root: Node<T>,
     order: usize,
     len: usize,
+    height: usize,
 }
 
 impl<T> BPlusTreeSet<T> {
@@ -82,6 +83,7 @@ impl<T> BPlusTreeSet<T> {
             root: Node::new(NodeKind::Leaf, true),
             order,
             len: 0,
+            height: 1,
         }
     }
 
@@ -89,6 +91,12 @@ impl<T> BPlusTreeSet<T> {
     #[inline]
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// Return how many levels this B+Tree has.
+    #[inline]
+    pub fn height(&self) -> usize {
+        self.height
     }
 
     /// Returns true if the set contains no elements.
@@ -157,14 +165,66 @@ where
         (ptr, parent_nodes)
     }
 
+    /// Choose a sibling that most likely makes coalescence happen.
+    ///
+    /// If `right` is chosen, a `true` will be returned.
+    fn choose_sibling<'a>(
+        left: Option<&'a Node<T>>,
+        right: Option<&'a Node<T>>,
+    ) -> (&'a Node<T>, bool) {
+        match (left, right) {
+            (Some(left), Some(right)) => {
+                assert_eq!(left.kind(), right.kind());
+
+                if left.is_leaf() {
+                    if left.read().keys.len() < right.read().keys.len() {
+                        (left, false)
+                    } else {
+                        (right, true)
+                    }
+                } else {
+                    if left.read().ptrs.len() < right.read().ptrs.len() {
+                        (left, false)
+                    } else {
+                        (right, true)
+                    }
+                }
+            }
+            (Some(left), None) => (left, false),
+            (None, Some(right)) => (right, true),
+            (None, None) => unimplemented!("At least one of them is Some"),
+        }
+    }
+
     /// Assume `parent` is the parent node of `node`, return `node`'s sibling node
     /// and the value between `node` and its sibling, and a bool value indicating
     /// whether `node` is a predecessor of `node_plus`
     ///
     /// # Note
     /// `node_plus` and `k_plus` are cloned from `parent`.
-    fn find_sibling_and_k_plus(parent: &Node<T>, node: &Node<T>) -> (Node<T>, Rc<T>, bool) {
-        unimplemented!()
+    fn find_sibling_and_k_plus(parent: &Node<T>, node: &Node<T>) -> (Node<T>, Rc<T>, bool)
+    where
+        T: Ord,
+    {
+        // let parent_read = parent.read();
+        let node_idx = parent
+            .contains_pointer(node)
+            .expect("Should be Some as `parent` should contain `node`");
+        let parent_read = parent.read();
+        let (left_sibling, right_sibling) = (
+            parent_read.ptrs.get(node_idx - 1),
+            parent_read.ptrs.get(node_idx + 1),
+        );
+        let (sibling, node_is_predecessor) =
+            BPlusTreeSet::choose_sibling(left_sibling, right_sibling);
+
+        let k_plus = if node_is_predecessor {
+            Rc::clone(&parent_read.keys[node_idx])
+        } else {
+            Rc::clone(&parent_read.keys[node_idx - 1])
+        };
+
+        (Node::clone(sibling), k_plus, node_is_predecessor)
     }
 
     /// Return `true` if `node` and `node_plus` can fit into a single node.
@@ -222,6 +282,7 @@ where
                 assert!(!new_root.is_root());
                 new_root.set_root(true);
                 self.root = new_root;
+                self.height -= 1;
                 return;
             }
 
@@ -242,15 +303,22 @@ where
                 }
 
                 if !node.is_leaf() {
-                    let mut node_plus_write = node_plus.write();
-                    node_plus_write.keys.push(Rc::clone(&k_plus));
-                    node_plus_write.keys.extend(node.write().keys.drain(..));
-                    node_plus_write.ptrs.extend(node.write().ptrs.drain(..));
-                } else {
-                    let mut node_plus_write = node_plus.write();
-                    node_plus_write.keys.extend(node.write().keys.drain(..));
-                    node_plus_write.ptrs.extend(node.write().ptrs.drain(..));
+                    // This is ONLY needed for a internal node, because for leaf
+                    // node, `k_plus` is the first entry in `node`
+                    /*
+                        # order = 4
+                        # Try delete `4` from the following tree
+                        # `k_plus` is 3, node([3, 4])[0] is 3
+                        # And you should recall that the `k_plus` 3 (in the root)
+                        # was created when you splitting leaf node `[1, 2, 3, 4]`.
+                            [3]
+                           /    \
+                        [1, 2] - [3, 4]
+                    */
+                    node_plus.write().keys.push(Rc::clone(&k_plus));
                 }
+                node_plus.write().keys.extend(node.write().keys.drain(..));
+                node_plus.write().ptrs.extend(node.write().ptrs.drain(..));
 
                 self.delete_entry(parent, k_plus, Some(node), parents);
             } else {
@@ -285,6 +353,7 @@ where
             drop(new_root_write_guard);
 
             self.root = new_root;
+            self.height += 1;
         } else {
             let parent_of_split = parents.pop().expect("parents is not empty");
             let order = self.order;

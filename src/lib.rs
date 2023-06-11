@@ -66,4 +66,25 @@ mod test {
 
         assert!(set.is_empty());
     }
+
+    #[test]
+    fn delete_that_shrinks_the_tree() {
+        let mut set = BPlusTreeSet::new(4);
+        for i in 1..5 {
+            set.insert(i);
+        }
+
+        /*
+              [3]
+             /   \
+        [1, 2] ->  [3, 4]
+        */
+        assert_eq!(set.height(), 2);
+        set.remove(&4);
+
+        /*
+        [1, 2, 3]
+        */
+        assert_eq!(set.height(), 1);
+    }
 }
