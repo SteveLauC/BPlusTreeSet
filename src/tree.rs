@@ -6,6 +6,7 @@ use crate::{
 use std::{
     borrow::Borrow,
     fmt::{Debug, Display, Formatter},
+    ops::Deref,
     rc::Rc,
 };
 
@@ -47,13 +48,22 @@ impl<T> BPlusTreeSet<T> {
     ///
     /// > `[x]` denotes that the smallest integer that is bigger than `x`.
     pub(crate) fn node_has_too_few_entries(&self, node: &Node<T>) -> bool {
-        let search_key_threshold = ((self.order - 1) as f64 / 2.0).ceil() as usize;
-        let ptr_threshold = ((self.order as f64) / 2.0).ceil() as usize;
-
-        if node.is_leaf() {
-            node.read().keys.len() < search_key_threshold
+        if node.is_root() {
+            if !node.is_leaf() {
+                // A root that is not leaf should have at least 2 children(pointers)
+                node.read().ptrs.len() < 2
+            } else {
+                false
+            }
         } else {
-            node.read().ptrs.len() < ptr_threshold
+            let search_key_threshold = ((self.order - 1) as f64 / 2.0).ceil() as usize;
+            let ptr_threshold = ((self.order as f64) / 2.0).ceil() as usize;
+
+            if node.is_leaf() {
+                node.read().keys.len() < search_key_threshold
+            } else {
+                node.read().ptrs.len() < ptr_threshold
+            }
         }
     }
 
@@ -65,7 +75,7 @@ impl<T> BPlusTreeSet<T> {
         assert!(order >= 2);
 
         Self {
-            root: Node::new(NodeKind::Leaf),
+            root: Node::new(NodeKind::Leaf, true),
             order,
             len: 0,
         }
@@ -143,6 +153,32 @@ where
         (ptr, parent_nodes)
     }
 
+    /// Assume `parent` is the parent node of `node`, return `node`'s sibling node
+    /// and the value between `node` and its sibling, and a bool value indicating
+    /// whether `node` is a predecessor of `node_plus`
+    ///
+    /// # Note
+    /// `node_plus` and `k_plus` are cloned from `parent`.
+    fn find_sibling_and_k_plus(parent: &Node<T>, node: &Node<T>) -> (Node<T>, Rc<T>, bool) {
+        unimplemented!()
+    }
+
+    /// Return `true` if `node` and `node_plus` can fit into a single node.
+    fn can_fit_in_a_single_node(&self, node: &Node<T>, node_plus: &Node<T>) -> bool {
+        assert_eq!(node.kind(), node_plus.kind());
+        let node_read = node.read();
+        let node_plus_read = node_plus.read();
+
+        if node.is_leaf() {
+            node_read.keys.len() + node_plus_read.keys.len() < self.order
+        } else {
+            let num_children_of_node = node_read.keys.len() + node_read.ptrs.len();
+            let num_children_of_node_plus = node_plus_read.keys.len() + node_plus_read.ptrs.len();
+
+            num_children_of_node + num_children_of_node_plus <= self.order
+        }
+    }
+
     /// Delete `value` and its pointer (if exists) from `node`.
     ///
     /// This function is used recursively, use it at the leaf node first, i.e.,
@@ -157,21 +193,64 @@ where
     /// argument should be `Some()`.
     fn delete_entry<Q>(
         &mut self,
-        node: Node<T>,
-        value: &Q,
+        mut node: Node<T>,
+        value: Rc<T>,
         pointer: Option<Node<T>>,
-        parents: Vec<Node<T>>,
+        mut parents: Vec<Node<T>>,
     ) where
-        T: Borrow<Q>,
+        T: Borrow<Q> + Ord,
         Q: Ord,
     {
-        let idx = node
-            .contains(value)
+        // delete `(Key, pointer)` from `Node`
+        let key_idx = node
+            .contains(value.deref().borrow())
             .expect("This node should contain `value`");
-        let mut node_write = node.write();
-        node_write.keys.remove(idx);
+        let ptr_idx_opt = pointer.and_then(|ptr| node.contains_pointer(&ptr));
+        node.write().keys.remove(key_idx);
+        if let Some(ptr_idx) = ptr_idx_opt {
+            node.write().ptrs.remove(ptr_idx);
+        }
 
-        unimplemented!()
+        let node_is_root = parents.is_empty();
+
+        // If `Node` is Root and it has ONLY one child
+        if node_is_root && node.write().ptrs.len() == 1 {
+            let new_root = node
+                .write()
+                .ptrs
+                .pop()
+                .expect("Should be Some as it has one child");
+            self.root = new_root;
+            return;
+        } else if self.node_has_too_few_entries(&node) {
+            let parent = parents
+                .pop()
+                .expect("Should be Some as `Node` has a parent node");
+            let (mut node_plus, k_plus, is_predecessor) =
+                BPlusTreeSet::find_sibling_and_k_plus(&parent, &node);
+
+            if self.can_fit_in_a_single_node(&node, &node_plus) {
+                // Switch them so that we can always append the entries in `node` to `node_plus`
+                if is_predecessor {
+                    let tmp = node;
+                    node = node_plus;
+                    node_plus = tmp;
+                }
+
+                if !node.is_leaf() {
+                    let mut node_plus_write = node_plus.write();
+                    node_plus_write.keys.push(Rc::clone(&k_plus));
+                    node_plus_write.keys.extend(node.write().keys.drain(..));
+                    node_plus_write.ptrs.extend(node.write().ptrs.drain(..));
+                } else {
+                    let mut node_plus_write = node_plus.write();
+                    node_plus_write.keys.extend(node.write().keys.drain(..));
+                    node_plus_write.ptrs.extend(node.write().ptrs.drain(..));
+                }
+
+                self.delete_entry(parent, k_plus, Some(node), parents);
+            }
+        }
     }
 
     /// Insert key and pointer `kp` to the parent node of `split`, i.e.,
@@ -190,7 +269,10 @@ where
             // We are gonna do insertion on the parent node of `split`, but
             // unfortunately it does not have a parent node, no worries, we can
             // create one for it.
-            let new_root = Node::new(NodeKind::Internal);
+
+            // split is no longer a Root
+            split.set_root(false);
+            let new_root = Node::new(NodeKind::Internal, true);
             let mut new_root_write_guard = new_root.write();
             new_root_write_guard.keys.push(kp.0);
             new_root_write_guard.ptrs.extend([split, kp.1]);
@@ -212,7 +294,7 @@ where
                 parent_write_guard.keys.insert(idx, kp.0);
             } else {
                 // split `parent_of_split` (non leaf node)
-                let parent_plus = Node::new(parent_of_split.kind());
+                let parent_plus = Node::new(parent_of_split.kind(), false);
                 let mut parent_write_guard = parent_of_split.write();
                 let mut tmp_keys = parent_write_guard.keys.drain(..).collect::<Vec<Rc<T>>>();
                 let mut tmp_ptrs = parent_write_guard.ptrs.drain(..).collect::<Vec<Node<T>>>();
@@ -275,7 +357,7 @@ where
             // 6. Move the remaining elements in `tmp` to `leaf_node_plus`.
             // 7. Let `K'` be the smallest entry in `leaf_node_plus`, insert it
             //    and a pointer to `leaf_node_plus` to the parent node of `leaf_node`.
-            let leaf_node_plus = Node::new(leaf_node.kind());
+            let leaf_node_plus = Node::new(leaf_node.kind(), false);
 
             let mut leaf_node_write_guard = leaf_node.write();
             let mut leaf_node_plus_write_guard = leaf_node_plus.write();
@@ -320,13 +402,15 @@ where
     /// the tree.
     pub fn remove<Q>(&mut self, value: &Q) -> bool
     where
-        T: Borrow<Q>,
+        T: Borrow<Q> + Ord,
         Q: Ord,
     {
         let (leaf, parents) = self.traverse_to_leaf_node_with_parents(value);
 
-        if leaf.contains(value).is_some() {
-            self.delete_entry(leaf, value, None, parents);
+        if let Some(idx) = leaf.contains(value) {
+            let key = Rc::clone(&leaf.read().keys[idx]);
+            self.delete_entry(leaf, key, None, parents);
+            self.len -= 1;
             true
         } else {
             false
@@ -421,35 +505,38 @@ mod test {
     #[test]
     fn node_is_full() {
         let tree = BPlusTreeSet::new(4);
-        let leaf = Node::new(NodeKind::Leaf);
+        let leaf = Node::new(NodeKind::Leaf, false);
         leaf.write().keys.extend((1..3).map(|i| Rc::new(i)));
         assert!(!tree.node_is_full(&leaf));
         leaf.write().keys.push(Rc::new(4));
         assert!(tree.node_is_full(&leaf));
 
-        let internal = Node::new(NodeKind::Internal);
+        let internal = Node::new(NodeKind::Internal, false);
         internal
             .write()
             .ptrs
-            .extend((1..4).map(|_| Node::new(NodeKind::Leaf)));
+            .extend((1..4).map(|_| Node::new(NodeKind::Leaf, false)));
         assert!(!tree.node_is_full(&internal));
-        internal.write().ptrs.push(Node::new(NodeKind::Leaf));
+        internal.write().ptrs.push(Node::new(NodeKind::Leaf, false));
         assert!(tree.node_is_full(&internal));
     }
 
     #[test]
-    fn node_has_too_few_entries() {
+    fn non_root_node_has_too_few_entries() {
         let tree = BPlusTreeSet::new(4);
-        let leaf = Node::new(NodeKind::Leaf);
+        let leaf = Node::new(NodeKind::Leaf, false);
         leaf.write().keys.push(Rc::new(1));
         assert!(tree.node_has_too_few_entries(&leaf));
         leaf.write().keys.push(Rc::new(2));
         assert!(!tree.node_has_too_few_entries(&leaf));
 
-        let internal = Node::new(NodeKind::Internal);
-        internal.write().ptrs.push(Node::new(NodeKind::Internal));
+        let internal = Node::new(NodeKind::Internal, false);
+        internal
+            .write()
+            .ptrs
+            .push(Node::new(NodeKind::Internal, false));
         assert!(tree.node_has_too_few_entries(&internal));
-        internal.write().ptrs.push(Node::new(NodeKind::Leaf));
+        internal.write().ptrs.push(Node::new(NodeKind::Leaf, false));
         assert!(!tree.node_has_too_few_entries(&internal));
     }
 }

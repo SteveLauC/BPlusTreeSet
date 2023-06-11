@@ -9,7 +9,8 @@ use std::{
 
 /// Node Kind
 ///
-/// We don't care if a node is Root Node or not.
+/// A Root node can be either a leaf node or a internal node, thus, we use a
+/// dedicated field to store it.
 #[derive(Debug, PartialEq, Copy, Clone, Ord, PartialOrd, Eq)]
 pub(crate) enum NodeKind {
     Internal,
@@ -18,7 +19,11 @@ pub(crate) enum NodeKind {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct InnerNode<T> {
-    pub(crate) kind: NodeKind,
+    /// A Root node can be either a leaf node or a internal node, thus, we use a
+    /// dedicated field to store it.
+    is_root: bool,
+    kind: NodeKind,
+
     pub(crate) keys: Vec<Rc<T>>,
     pub(crate) ptrs: Vec<Node<T>>,
 }
@@ -64,8 +69,9 @@ impl<T: Debug> Debug for Node<T> {
 
 impl<T> Node<T> {
     /// Create an empty `kind` Node.
-    pub(crate) fn new(kind: NodeKind) -> Self {
+    pub(crate) fn new(kind: NodeKind, is_root: bool) -> Self {
         let inner = InnerNode {
+            is_root,
             kind,
             keys: Vec::new(),
             ptrs: Vec::new(),
@@ -86,6 +92,18 @@ impl<T> Node<T> {
     #[inline]
     pub(crate) fn is_leaf(&self) -> bool {
         self.read().kind == NodeKind::Leaf
+    }
+
+    /// Return `true` is this Node is root.
+    #[inline]
+    pub(crate) fn is_root(&self) -> bool {
+        self.read().is_root
+    }
+
+    /// Set `is_root` for this Node.
+    #[inline]
+    pub(crate) fn set_root(&self, is_root: bool) {
+        self.write().is_root = is_root;
     }
 
     /// Helper function to help search `value` in a B+Tree.
@@ -113,7 +131,6 @@ impl<T> Node<T> {
                 idx + 1
             }
         } else {
-            println!("len = {}", read_guard.ptrs.len());
             read_guard.ptrs.len() - 1
         }
     }
@@ -193,10 +210,10 @@ mod test {
 
     #[test]
     fn nodes_equal() {
-        let node1 = Node::new(NodeKind::Internal);
+        let node1 = Node::new(NodeKind::Internal, false);
         node1.write().keys.push(Rc::new(1));
 
-        let node2 = Node::new(NodeKind::Internal);
+        let node2 = Node::new(NodeKind::Internal, false);
         node2.write().keys.push(Rc::new(1));
 
         assert_eq!(node1, node2);
@@ -204,20 +221,20 @@ mod test {
 
     #[test]
     fn nodes_not_equal() {
-        let node1 = Node::new(NodeKind::Internal);
+        let node1 = Node::new(NodeKind::Internal, false);
         node1.write().keys.push(Rc::new(1));
 
-        let node2 = Node::new(NodeKind::Internal);
+        let node2 = Node::new(NodeKind::Internal, false);
 
         assert_ne!(node1, node2);
     }
 
     #[test]
     fn nodes_gt() {
-        let node1 = Node::new(NodeKind::Internal);
+        let node1 = Node::new(NodeKind::Internal, false);
         node1.write().keys.push(Rc::new(1));
 
-        let node2 = Node::new(NodeKind::Internal);
+        let node2 = Node::new(NodeKind::Internal, false);
         node2.write().keys.push(Rc::new(0));
 
         assert!(node1 > node2);
@@ -225,7 +242,7 @@ mod test {
 
     #[test]
     fn contains() {
-        let node = Node::new(NodeKind::Internal);
+        let node = Node::new(NodeKind::Internal, false);
         node.write().keys.extend((1..10).map(|i| Rc::new(i)));
 
         assert_eq!(node.contains(&0), None);
@@ -235,17 +252,17 @@ mod test {
 
     #[test]
     fn contains_pointer() {
-        let test_node: Node<i32> = Node::new(NodeKind::Internal);
+        let test_node: Node<i32> = Node::new(NodeKind::Internal, false);
 
         for i in 0..10 {
-            let node = Node::new(NodeKind::Internal);
+            let node = Node::new(NodeKind::Internal, false);
             node.write().keys.push(Rc::new(i));
 
             test_node.write().ptrs.push(node);
         }
 
         for i in 0..10 {
-            let node = Node::new(NodeKind::Internal);
+            let node = Node::new(NodeKind::Internal, false);
             node.write().keys.push(Rc::new(i));
 
             assert_eq!(test_node.contains_pointer(&node), Some(i as usize))

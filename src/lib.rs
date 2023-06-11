@@ -47,4 +47,23 @@ mod test {
         let one = set.get(&1).unwrap();
         assert_eq!(Rc::strong_count(&one), 2);
     }
+
+    #[test]
+    fn delete_in_single_node_tree() {
+        let mut set = BPlusTreeSet::new(4);
+        for i in 0..3 {
+            assert!(!set.contains(&i));
+            assert!(set.insert(i));
+        }
+
+        println!("{:?}", set);
+
+        for i in 0..3 {
+            assert!(set.contains(&i));
+            assert!(set.remove(&i));
+            assert!(!set.contains(&i));
+        }
+
+        assert!(set.is_empty());
+    }
 }
