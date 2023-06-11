@@ -51,7 +51,11 @@ impl<T> BPlusTreeSet<T> {
         if node.is_root() {
             if !node.is_leaf() {
                 // A root that is not leaf should have at least 2 children(pointers)
-                node.read().ptrs.len() < 2
+                //
+                // And it should have exactly 1 child
+                let num_children = node.read().ptrs.len();
+                assert_eq!(num_children, 1);
+                num_children < 2
             } else {
                 false
             }
@@ -172,10 +176,7 @@ where
         if node.is_leaf() {
             node_read.keys.len() + node_plus_read.keys.len() < self.order
         } else {
-            let num_children_of_node = node_read.keys.len() + node_read.ptrs.len();
-            let num_children_of_node_plus = node_plus_read.keys.len() + node_plus_read.ptrs.len();
-
-            num_children_of_node + num_children_of_node_plus <= self.order
+            node_read.ptrs.len() + node_plus_read.ptrs.len() <= self.order
         }
     }
 
@@ -211,18 +212,19 @@ where
             node.write().ptrs.remove(ptr_idx);
         }
 
-        let node_is_root = parents.is_empty();
+        if self.node_has_too_few_entries(&node) {
+            if node.is_root() {
+                let new_root = node
+                    .write()
+                    .ptrs
+                    .pop()
+                    .expect("Should be Some as it has one child");
+                assert!(!new_root.is_root());
+                new_root.set_root(true);
+                self.root = new_root;
+                return;
+            }
 
-        // If `Node` is Root and it has ONLY one child
-        if node_is_root && node.write().ptrs.len() == 1 {
-            let new_root = node
-                .write()
-                .ptrs
-                .pop()
-                .expect("Should be Some as it has one child");
-            self.root = new_root;
-            return;
-        } else if self.node_has_too_few_entries(&node) {
             let parent = parents
                 .pop()
                 .expect("Should be Some as `Node` has a parent node");
@@ -230,6 +232,8 @@ where
                 BPlusTreeSet::find_sibling_and_k_plus(&parent, &node);
 
             if self.can_fit_in_a_single_node(&node, &node_plus) {
+                // coalesce `node` and `node_plus`
+
                 // Switch them so that we can always append the entries in `node` to `node_plus`
                 if is_predecessor {
                     let tmp = node;
@@ -249,6 +253,8 @@ where
                 }
 
                 self.delete_entry(parent, k_plus, Some(node), parents);
+            } else {
+                // redistribution
             }
         }
     }
@@ -259,18 +265,18 @@ where
     /// We have a vector of parent nodes as this operation can be recursive.
     ///
     /// # Recursion exits:
-    /// 1. `parents.is_empty()`, which means that the root node has just been split.
+    /// 1. The root node has just been split.
     /// 2. Split is no more triggered.
     fn insert_in_parent(&mut self, split: Node<T>, mut parents: Vec<Node<T>>, kp: (Rc<T>, Node<T>))
     where
         T: Ord,
     {
-        if parents.is_empty() {
+        if split.is_root() {
             // We are gonna do insertion on the parent node of `split`, but
             // unfortunately it does not have a parent node, no worries, we can
             // create one for it.
 
-            // split is no longer a Root
+            // `split` is no longer a Root
             split.set_root(false);
             let new_root = Node::new(NodeKind::Internal, true);
             let mut new_root_write_guard = new_root.write();
