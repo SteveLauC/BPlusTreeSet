@@ -1,26 +1,49 @@
-use bitflags::{bitflags, Flags};
 use std::{
     borrow::Borrow,
     cell::{Ref, RefCell, RefMut},
+    cmp::Ordering,
     fmt::{Debug, Formatter},
     ops::Deref,
     rc::Rc,
 };
 
-bitflags! {
-    #[derive(Debug, PartialEq, Copy, Clone, Ord, PartialOrd, Eq)]
-    pub(crate) struct NodeKind: u32 {
-        const ROOT = 1;
-        const INTERNAL = 2;
-        const LEAF = 4;
-    }
+/// Node Kind
+///
+/// We don't care if a node is Root Node or not.
+#[derive(Debug, PartialEq, Copy, Clone, Ord, PartialOrd, Eq)]
+pub(crate) enum NodeKind {
+    Internal,
+    Leaf,
 }
 
-#[derive(Debug, Ord, Eq, PartialOrd, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) struct InnerNode<T> {
     pub(crate) kind: NodeKind,
     pub(crate) keys: Vec<Rc<T>>,
     pub(crate) ptrs: Vec<Node<T>>,
+}
+
+impl<T: PartialOrd> PartialOrd for InnerNode<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self == other {
+            Some(Ordering::Equal)
+        } else {
+            self.keys
+                .first()
+                .unwrap()
+                .partial_cmp(other.keys.first().unwrap())
+        }
+    }
+}
+
+impl<T: PartialOrd + Ord> Ord for InnerNode<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self == other {
+            Ordering::Equal
+        } else {
+            self.keys.first().unwrap().cmp(other.keys.first().unwrap())
+        }
+    }
 }
 
 /// A `Node` in a B+TREE
@@ -53,25 +76,16 @@ impl<T> Node<T> {
         }
     }
 
-    /// Return the amount of **children** that this node contains.
-    ///
-    /// Since we are implementing a set, the pointers (other than the last one)
-    /// in a leaf node does not store values, and thus should all be `NULL`.
-    /// Our `ptrs` field is of type `Vec<Node<T>>`, which means we cannot
-    /// represent `NULL` in our code, so leaf nodes in our implementation will
-    /// ONLY have one pointer (pointing to the next leaf node).
-    ///
-    /// In such a case, implementing `len()` with `read_guard.ptrs.len()` would
-    /// be incorrect, thus we use `read_guard.keys.len() + 1`.
-    #[inline]
-    pub(crate) fn len(&self) -> usize {
-        self.read().keys.len() + 1
-    }
-
     /// Return `true` if this node is a leaf node.
+    ///
+    /// Since we ONLY have two kinds of node:
+    /// 1. Leaf node
+    /// 2. Internal node
+    ///
+    /// Use `!node.is_leaf()` if you wanna determine if a node is an internal node.
     #[inline]
     pub(crate) fn is_leaf(&self) -> bool {
-        self.read().kind.contains(NodeKind::LEAF)
+        self.read().kind == NodeKind::Leaf
     }
 
     /// Helper function to help search `value` in a B+Tree.
@@ -85,7 +99,6 @@ impl<T> Node<T> {
     {
         assert!(!self.is_leaf());
 
-        let len = self.len();
         let read_guard = self.read();
 
         let idx_opt = read_guard
@@ -100,21 +113,34 @@ impl<T> Node<T> {
                 idx + 1
             }
         } else {
-            len - 1
+            println!("len = {}", read_guard.ptrs.len());
+            read_guard.ptrs.len() - 1
         }
     }
 
-    /// Return true if this Node contains `value`.
-    pub(crate) fn contains<Q>(&self, value: &Q) -> bool
+    /// Return `Some(idx)` if this Node contains `value`.
+    pub(crate) fn contains<Q>(&self, value: &Q) -> Option<usize>
     where
         Q: Ord,
         T: Borrow<Q>,
     {
-        let read_guard = (&self.inner as &RefCell<InnerNode<T>>).borrow();
-        read_guard
+        let read_guard = self.read();
+        let idx = read_guard
             .keys
             .binary_search_by(|item| (item as &T).borrow().cmp(value))
-            .is_ok()
+            .ok()?;
+
+        Some(idx)
+    }
+
+    /// Return `Some(idx)` if this Node contains `pointer`
+    pub(crate) fn contains_pointer(&self, node: &Node<T>) -> Option<usize>
+    where
+        T: Ord,
+    {
+        let read_guard = self.read();
+        let idx = read_guard.ptrs.binary_search(node).ok()?;
+        Some(idx)
     }
 
     /// Insert `value` into this leaf node.
@@ -142,12 +168,6 @@ impl<T> Node<T> {
         self.read().kind
     }
 
-    /// Set this node's kind to `kind`.
-    #[inline]
-    pub(crate) fn set_kind(&self, kind: NodeKind) {
-        self.write().kind = kind;
-    }
-
     /// Acquire a Read Guard to `self.`
     pub(crate) fn read(&self) -> Ref<InnerNode<T>> {
         self.inner.deref().borrow()
@@ -163,6 +183,72 @@ impl<T> Clone for Node<T> {
     fn clone(&self) -> Self {
         Self {
             inner: Rc::clone(&self.inner),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn nodes_equal() {
+        let node1 = Node::new(NodeKind::Internal);
+        node1.write().keys.push(Rc::new(1));
+
+        let node2 = Node::new(NodeKind::Internal);
+        node2.write().keys.push(Rc::new(1));
+
+        assert_eq!(node1, node2);
+    }
+
+    #[test]
+    fn nodes_not_equal() {
+        let node1 = Node::new(NodeKind::Internal);
+        node1.write().keys.push(Rc::new(1));
+
+        let node2 = Node::new(NodeKind::Internal);
+
+        assert_ne!(node1, node2);
+    }
+
+    #[test]
+    fn nodes_gt() {
+        let node1 = Node::new(NodeKind::Internal);
+        node1.write().keys.push(Rc::new(1));
+
+        let node2 = Node::new(NodeKind::Internal);
+        node2.write().keys.push(Rc::new(0));
+
+        assert!(node1 > node2);
+    }
+
+    #[test]
+    fn contains() {
+        let node = Node::new(NodeKind::Internal);
+        node.write().keys.extend((1..10).map(|i| Rc::new(i)));
+
+        assert_eq!(node.contains(&0), None);
+        assert_eq!(node.contains(&1), Some(0));
+        assert_eq!(node.contains(&10), None);
+    }
+
+    #[test]
+    fn contains_pointer() {
+        let test_node: Node<i32> = Node::new(NodeKind::Internal);
+
+        for i in 0..10 {
+            let node = Node::new(NodeKind::Internal);
+            node.write().keys.push(Rc::new(i));
+
+            test_node.write().ptrs.push(node);
+        }
+
+        for i in 0..10 {
+            let node = Node::new(NodeKind::Internal);
+            node.write().keys.push(Rc::new(i));
+
+            assert_eq!(test_node.contains_pointer(&node), Some(i as usize))
         }
     }
 }

@@ -10,7 +10,6 @@ pub fn len(&self) -> usize
 pub fn is_empty(&self) -> bool
 pub fn insert(&mut self, value: T) -> bool
 pub fn remove<Q>(&mut self, value: &Q) -> bool
-pub fn take<Q>(&mut self, value: &Q) -> Option<T>
 pub fn get<Q>(&self, value: &Q) -> Option<Rc<T>>
 pub fn contains<Q>(&self, value: &Q) -> bool
 pub fn iter(&self) -> Iter<'_, T>
