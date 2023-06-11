@@ -182,12 +182,10 @@ where
                     } else {
                         (right, true)
                     }
+                } else if left.read().ptrs.len() < right.read().ptrs.len() {
+                    (left, false)
                 } else {
-                    if left.read().ptrs.len() < right.read().ptrs.len() {
-                        (left, false)
-                    } else {
-                        (right, true)
-                    }
+                    (right, true)
                 }
             }
             (Some(left), None) => (left, false),
@@ -297,9 +295,7 @@ where
 
                 // Switch them so that we can always append the entries in `node` to `node_plus`
                 if is_predecessor {
-                    let tmp = node;
-                    node = node_plus;
-                    node_plus = tmp;
+                    std::mem::swap(&mut node, &mut node_plus);
                 }
 
                 if !node.is_leaf() {
@@ -317,8 +313,8 @@ where
                     */
                     node_plus.write().keys.push(Rc::clone(&k_plus));
                 }
-                node_plus.write().keys.extend(node.write().keys.drain(..));
-                node_plus.write().ptrs.extend(node.write().ptrs.drain(..));
+                node_plus.write().keys.append(&mut node.write().keys);
+                node_plus.write().ptrs.append(&mut node.write().ptrs);
 
                 self.delete_entry(parent, k_plus, Some(node), parents);
             } else {
