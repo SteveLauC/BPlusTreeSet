@@ -18,6 +18,7 @@ mod test {
         let set: BPlusTreeSet<i32> = BPlusTreeSet::new(4);
 
         assert_eq!(set.len(), 0);
+        assert_eq!(set.height(), 1);
     }
 
     #[test]
@@ -25,17 +26,18 @@ mod test {
         let mut set = BPlusTreeSet::new(4);
         assert!(set.is_empty());
 
-        for i in 0..10 {
+        for i in 1..11 {
             assert!(!set.contains(&i));
             assert!(set.insert(i));
         }
 
-        for i in 0..10 {
+        for i in 1..11 {
             assert!(!set.insert(i));
             assert!(set.contains(&i));
         }
 
         assert_eq!(set.len(), 10);
+        assert_eq!(set.height(), 3);
     }
 
     #[test]
