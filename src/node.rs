@@ -1,7 +1,6 @@
 use std::{
     borrow::Borrow,
     cell::{Ref, RefCell, RefMut},
-    cmp::Ordering,
     fmt::{Debug, Formatter},
     ops::Deref,
     rc::Rc,
@@ -28,34 +27,11 @@ pub(crate) struct InnerNode<T> {
     pub(crate) ptrs: Vec<Node<T>>,
 }
 
-impl<T: PartialOrd> PartialOrd for InnerNode<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self == other {
-            Some(Ordering::Equal)
-        } else {
-            self.keys
-                .first()
-                .unwrap()
-                .partial_cmp(other.keys.first().unwrap())
-        }
-    }
-}
-
-impl<T: PartialOrd + Ord> Ord for InnerNode<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self == other {
-            Ordering::Equal
-        } else {
-            self.keys.first().unwrap().cmp(other.keys.first().unwrap())
-        }
-    }
-}
-
 /// A `Node` in a B+TREE
 ///
 /// `Rc` is used as a leaf node can have more than 1 owner (Maybe 2? One is its
 /// parent node, the other one is the previous leaf node).
-#[derive(Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Eq, PartialEq)]
 pub(crate) struct Node<T> {
     pub(crate) inner: Rc<RefCell<InnerNode<T>>>,
 }
@@ -156,7 +132,6 @@ impl<T> Node<T> {
         T: Ord,
     {
         let read_guard = self.read();
-        // let idx = read_guard.ptrs.binary_search(node).ok()?;
         let idx = read_guard.ptrs.iter().position(|item| item == node)?;
         Some(idx)
     }
@@ -228,17 +203,6 @@ mod test {
         let node2 = Node::new(NodeKind::Internal, false);
 
         assert_ne!(node1, node2);
-    }
-
-    #[test]
-    fn nodes_gt() {
-        let node1 = Node::new(NodeKind::Internal, false);
-        node1.write().keys.push(Rc::new(1));
-
-        let node2 = Node::new(NodeKind::Internal, false);
-        node2.write().keys.push(Rc::new(0));
-
-        assert!(node1 > node2);
     }
 
     #[test]
