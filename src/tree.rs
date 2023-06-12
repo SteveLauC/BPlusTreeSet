@@ -19,7 +19,7 @@ pub struct BPlusTreeSet<T> {
     height: usize,
 }
 
-impl<T> BPlusTreeSet<T> {
+impl<T: Debug> BPlusTreeSet<T> {
     /// Return `true` if this node is full.
     ///
     /// A full node is a valid node, but you cannot insert into it.
@@ -29,7 +29,7 @@ impl<T> BPlusTreeSet<T> {
     ///
     /// * Non-leaf node
     ///   A non-leaf node is full if it has `order` pointers.
-    pub(crate) fn node_is_full(&self, node: &Node<T>) -> bool {
+    fn node_is_full(&self, node: &Node<T>) -> bool {
         if node.is_leaf() {
             node.read().keys.len() >= (self.order - 1)
         } else {
@@ -48,15 +48,18 @@ impl<T> BPlusTreeSet<T> {
     ///   The amount of pointers is smaller than `[n/2]`.
     ///
     /// > `[x]` denotes that the smallest integer that is bigger than `x`.
-    pub(crate) fn node_has_too_few_entries(&self, node: &Node<T>) -> bool {
+    fn node_has_too_few_entries(&self, node: &Node<T>) -> bool {
         if node.is_root() {
             if !node.is_leaf() {
                 // A root that is not leaf should have at least 2 children(pointers)
-                //
-                // And it should have exactly 1 child
                 let num_children = node.read().ptrs.len();
-                assert_eq!(num_children, 1);
-                num_children < 2
+                if num_children < 2 {
+                    // If so, it should have exactly 1 child
+                    assert_eq!(num_children, 1);
+                    true
+                } else {
+                    false
+                }
             } else {
                 false
             }
@@ -75,9 +78,9 @@ impl<T> BPlusTreeSet<T> {
     /// Create a B+Tree set with order set to `order`.
     ///
     /// # Panic
-    /// Will panic if `order` is smaller than 2.
+    /// Will panic if `order` is smaller than 3.
     pub fn new(order: usize) -> Self {
-        assert!(order >= 2);
+        assert!(order >= 3);
 
         Self {
             root: Node::new(NodeKind::Leaf, true),
@@ -106,7 +109,7 @@ impl<T> BPlusTreeSet<T> {
     }
 }
 
-impl<T> BPlusTreeSet<T>
+impl<T: Debug> BPlusTreeSet<T>
 where
     T: PartialOrd,
 {
@@ -190,7 +193,9 @@ where
             }
             (Some(left), None) => (left, false),
             (None, Some(right)) => (right, true),
-            (None, None) => unimplemented!("At least one of them is Some"),
+            // `parent` should be an internal node, and every internal node should
+            // have at least 2 children, i.e., every node should have a sibling
+            (None, None) => unreachable!("At least one of them is Some"),
         }
     }
 
