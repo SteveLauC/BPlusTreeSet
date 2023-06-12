@@ -383,7 +383,12 @@ where
                 assert_eq!(tmp_keys.len(), order);
                 assert_eq!(tmp_ptrs.len(), order + 1);
 
-                let idx_of_k = (order as f64 / 2.0).ceil() as usize;
+                let mut idx_of_k = (order as f64 / 2.0).ceil() as usize;
+                // To resolve this problem: https://stackoverflow.com/a/76455007/14092446
+                // we have to give the plus node one more key
+                if self.order == 3 {
+                    idx_of_k -= 1;
+                }
                 parent_write_guard.keys.extend(tmp_keys.drain(0..idx_of_k));
                 parent_write_guard.ptrs.extend(tmp_ptrs.drain(0..=idx_of_k));
 
@@ -392,6 +397,9 @@ where
                 let mut parent_plus_write_guard = parent_plus.write();
                 parent_plus_write_guard.keys = tmp_keys;
                 parent_plus_write_guard.ptrs = tmp_ptrs;
+
+                assert!(!parent_write_guard.keys.is_empty());
+                assert!(!parent_plus_write_guard.keys.is_empty());
 
                 drop(parent_write_guard);
                 drop(parent_plus_write_guard);
@@ -461,6 +469,10 @@ where
 
             // Duplication occurs here
             let k = Rc::clone(&leaf_node_plus_write_guard.keys[0]);
+
+            assert!(!leaf_node_write_guard.keys.is_empty());
+            assert!(!leaf_node_plus_write_guard.keys.is_empty());
+
             drop(leaf_node_write_guard);
             drop(leaf_node_plus_write_guard);
 
