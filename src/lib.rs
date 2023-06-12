@@ -21,6 +21,33 @@ mod test {
         assert_eq!(set.height(), 1);
     }
 
+
+    #[test]
+    fn insert_order_3() {
+        let mut set = BPlusTreeSet::new(3);
+        assert!(set.is_empty());
+
+        for i in 1..8 {
+            assert!(!set.contains(&i));
+            assert!(set.insert(i));
+        }
+        /*
+                  [5]
+              /         \
+          [3] ------------[7]
+         /    \         /    \
+        [1, 2]-[3, 4]-[5, 6]-[7]
+        */
+
+        for i in 1..8 {
+            assert!(!set.insert(i));
+            assert!(set.contains(&i));
+        }
+
+        assert_eq!(set.len(), 7);
+        assert_eq!(set.height(), 3);
+    }
+
     #[test]
     fn insert() {
         let mut set = BPlusTreeSet::new(4);
