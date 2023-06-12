@@ -156,7 +156,8 @@ impl<T> Node<T> {
         T: Ord,
     {
         let read_guard = self.read();
-        let idx = read_guard.ptrs.binary_search(node).ok()?;
+        // let idx = read_guard.ptrs.binary_search(node).ok()?;
+        let idx = read_guard.ptrs.iter().position(|item| item == node)?;
         Some(idx)
     }
 

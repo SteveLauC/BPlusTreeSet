@@ -317,13 +317,28 @@ where
                         [1, 2] - [3, 4]
                     */
                     node_plus.write().keys.push(Rc::clone(&k_plus));
+                    node_plus.write().keys.append(&mut node.write().keys);
+                    node_plus.write().ptrs.append(&mut node.write().ptrs);
+                } else {
+                    let next_leaf = node.write().ptrs.pop();
+                    assert_eq!(node.write().ptrs.len(), 0);
+                    node_plus.write().keys.append(&mut node.write().keys);
+
+                    node_plus
+                        .write()
+                        .ptrs
+                        .pop()
+                        .expect("node_plus should have a next leaf, which is node");
+                    assert_eq!(node_plus.write().ptrs.len(), 0);
+                    if let Some(next_leaf) = next_leaf {
+                        node_plus.write().ptrs.push(next_leaf);
+                    }
                 }
-                node_plus.write().keys.append(&mut node.write().keys);
-                node_plus.write().ptrs.append(&mut node.write().ptrs);
 
                 self.delete_entry(parent, k_plus, Some(node), parents);
             } else {
                 // redistribution
+                unimplemented!()
             }
         }
     }
@@ -361,11 +376,10 @@ where
 
             // Finally, no recursions anymore!
             if !self.node_is_full(&parent_of_split) {
-                let mut parent_write_guard = parent_of_split.write();
-                let idx = parent_write_guard
-                    .ptrs
-                    .binary_search(&split)
+                let idx = parent_of_split
+                    .contains_pointer(&split)
                     .expect("`split` should be there");
+                let mut parent_write_guard = parent_of_split.write();
                 parent_write_guard.ptrs.insert(idx + 1, kp.1);
                 parent_write_guard.keys.insert(idx, kp.0);
             } else {
