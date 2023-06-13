@@ -11,6 +11,7 @@ A set implementation backed by B+Tree.
 pub fn new(order: usize) -> Self
 pub fn len(&self) -> usize
 pub fn is_empty(&self) -> bool
+pub fn height(&self) -> usize
 pub fn insert(&mut self, value: T) -> bool
 pub fn remove<Q>(&mut self, value: &Q) -> bool
 pub fn get<Q>(&self, value: &Q) -> Option<Rc<T>>
