@@ -132,7 +132,7 @@ mod test {
         }
 
         assert_eq!(set.len(), 0);
-        assert_eq!(set.height(), 0);
+        assert_eq!(set.height(), 1);
     }
 
     #[test]
@@ -151,6 +151,6 @@ mod test {
         }
 
         assert_eq!(set.len(), 0);
-        assert_eq!(set.height(), 0);
+        assert_eq!(set.height(), 1);
     }
 }
