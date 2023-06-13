@@ -19,7 +19,7 @@ pub struct BPlusTreeSet<T> {
     height: usize,
 }
 
-impl<T: Debug> BPlusTreeSet<T> {
+impl<T> BPlusTreeSet<T> {
     /// Return `true` if this node is full.
     ///
     /// A full node is a valid node, but you cannot insert into it.
@@ -109,7 +109,7 @@ impl<T: Debug> BPlusTreeSet<T> {
     }
 }
 
-impl<T: Debug> BPlusTreeSet<T>
+impl<T> BPlusTreeSet<T>
 where
     T: PartialOrd,
 {
@@ -199,35 +199,52 @@ where
         }
     }
 
-    /// Assume `parent` is the parent node of `node`, return `node`'s sibling node
-    /// and the value between `node` and its sibling, and a bool value indicating
-    /// whether `node` is a predecessor of `node_plus`
+    /// Assume `parent` is the parent node of `node`
+    ///
+    /// return
+    /// 1. `node`'s best sibling node
+    ///    > Maximize the possibility of coalescence.
+    ///
+    /// 2. the value between `node` and its sibling
+    /// 3. Index of that value in 2
+    /// 4. a bool value indicating whether `node` is a predecessor of `node_plus`
     ///
     /// # Note
     /// `node_plus` and `k_plus` are cloned from `parent`.
-    fn find_sibling_and_k_plus(parent: &Node<T>, node: &Node<T>) -> (Node<T>, Rc<T>, bool)
+    fn find_sibling_and_k_plus(parent: &Node<T>, node: &Node<T>) -> (Node<T>, Rc<T>, usize, bool)
     where
         T: Ord,
     {
-        // let parent_read = parent.read();
         let node_idx = parent
             .contains_pointer(node)
             .expect("Should be Some as `parent` should contain `node`");
         let parent_read = parent.read();
+
         let (left_sibling, right_sibling) = (
-            parent_read.ptrs.get(node_idx - 1),
-            parent_read.ptrs.get(node_idx + 1),
+            node_idx
+                .checked_sub(1)
+                .and_then(|idx| parent_read.ptrs.get(idx)),
+            node_idx
+                .checked_add(1)
+                .and_then(|idx| parent_read.ptrs.get(idx)),
         );
         let (sibling, node_is_predecessor) =
             BPlusTreeSet::choose_sibling(left_sibling, right_sibling);
 
-        let k_plus = if node_is_predecessor {
-            Rc::clone(&parent_read.keys[node_idx])
+        let k_plus_idx = if node_is_predecessor {
+            node_idx
         } else {
-            Rc::clone(&parent_read.keys[node_idx - 1])
+            node_idx - 1
         };
 
-        (Node::clone(sibling), k_plus, node_is_predecessor)
+        let k_plus = Rc::clone(&parent_read.keys[k_plus_idx]);
+
+        (
+            Node::clone(sibling),
+            k_plus,
+            k_plus_idx,
+            node_is_predecessor,
+        )
     }
 
     /// Return `true` if `node` and `node_plus` can fit into a single node.
@@ -292,7 +309,7 @@ where
             let parent = parents
                 .pop()
                 .expect("Should be Some as `Node` has a parent node");
-            let (mut node_plus, k_plus, is_predecessor) =
+            let (mut node_plus, k_plus, k_plus_idx, is_predecessor) =
                 BPlusTreeSet::find_sibling_and_k_plus(&parent, &node);
 
             if self.can_fit_in_a_single_node(&node, &node_plus) {
@@ -338,7 +355,67 @@ where
                 self.delete_entry(parent, k_plus, Some(node), parents);
             } else {
                 // redistribution
-                unimplemented!()
+                if !is_predecessor {
+                    let mut node_plus_write = node_plus.write();
+                    let (mut node_plus_last_key, node_plus_last_ptr) = (
+                        node_plus_write
+                            .keys
+                            .pop()
+                            .expect("Should be Some as coalescence is not possible"),
+                        node_plus_write
+                            .ptrs
+                            .pop()
+                            .expect("Should be Some as coalescence is not possible"),
+                    );
+                    drop(node_plus_write);
+
+                    if !node.is_leaf() {
+                        node.write().keys.insert(0, k_plus);
+                        node.write().ptrs.insert(0, node_plus_last_ptr);
+
+                        // replace `k_plus` in the `parent` with the last key in `node_plus`
+                        std::mem::swap(
+                            &mut parent.write().keys[k_plus_idx],
+                            &mut node_plus_last_key,
+                        );
+                    } else {
+                        node.write().keys.insert(0, Rc::clone(&node_plus_last_key));
+                        node.write().ptrs.insert(0, node_plus_last_ptr);
+
+                        // replace `k_plus` in the `parent` with the last key in `node_plus`
+                        std::mem::swap(
+                            &mut parent.write().keys[k_plus_idx],
+                            &mut node_plus_last_key,
+                        );
+                    }
+                } else {
+                    let mut node_plus_write = node_plus.write();
+                    let (mut node_plus_first_key, node_plus_first_ptr) = (
+                        node_plus_write.keys.remove(0),
+                        node_plus_write.ptrs.remove(0),
+                    );
+                    drop(node_plus_write);
+
+                    if !node.is_leaf() {
+                        node.write().keys.push(k_plus);
+                        node.write().ptrs.push(node_plus_first_ptr);
+
+                        // replace `k_plus` in the `parent` with the first key in `node_plus`
+                        std::mem::swap(
+                            &mut parent.write().keys[k_plus_idx],
+                            &mut node_plus_first_key,
+                        );
+                    } else {
+                        node.write().keys.push(Rc::clone(&node_plus_first_key));
+                        node.write().ptrs.push(node_plus_first_ptr);
+
+                        // replace `k_plus` in the `parent` with the first key in `node_plus`
+                        std::mem::swap(
+                            &mut parent.write().keys[k_plus_idx],
+                            &mut node_plus_first_key,
+                        );
+                    }
+                }
             }
         }
     }

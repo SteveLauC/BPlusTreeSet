@@ -21,7 +21,6 @@ mod test {
         assert_eq!(set.height(), 1);
     }
 
-
     #[test]
     fn insert_order_3() {
         let mut set = BPlusTreeSet::new(3);
@@ -115,5 +114,43 @@ mod test {
         [1, 2, 3]
         */
         assert_eq!(set.height(), 1);
+    }
+
+    #[test]
+    fn delete_without_redistribution() {
+        let mut set = BPlusTreeSet::new(3);
+
+        for i in 0..15 {
+            assert!(set.insert(i));
+        }
+        assert_eq!(set.len(), 15);
+
+        for i in 0..15 {
+            assert!(set.contains(&i));
+            assert!(set.remove(&i));
+            assert!(!set.contains(&i));
+        }
+
+        assert_eq!(set.len(), 0);
+        assert_eq!(set.height(), 0);
+    }
+
+    #[test]
+    fn delete_redistribution() {
+        let mut set = BPlusTreeSet::new(3);
+
+        for i in 0..100 {
+            assert!(set.insert(i));
+        }
+        assert_eq!(set.len(), 100);
+
+        for i in 0..100 {
+            assert!(set.contains(&i));
+            assert!(set.remove(&i));
+            assert!(!set.contains(&i));
+        }
+
+        assert_eq!(set.len(), 0);
+        assert_eq!(set.height(), 0);
     }
 }
