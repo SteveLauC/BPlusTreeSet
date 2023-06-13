@@ -2,7 +2,7 @@
 
 A set implementation backed by B+Tree.
 
-> This impl follows the pseudocode give in
+> This impl follows the pseudocode given in
 > [Database System Concepts 7th Edition](https://www.db-book.com/).
 
 ## API
