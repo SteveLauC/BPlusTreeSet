@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-/// Insert `value` into `vec`.
+/// Insert `value` into `vec`, and make it sorted.
 ///
 /// # NOTE
 /// `vec` should not contain `value` or this function will panic.

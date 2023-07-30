@@ -23,6 +23,7 @@ pub(crate) struct InnerNode<T> {
     is_root: bool,
     kind: NodeKind,
 
+    // `Rc` is used due to key duplication (happens when splitting a leaf node)
     pub(crate) keys: Vec<Rc<T>>,
     pub(crate) ptrs: Vec<Node<T>>,
 }
@@ -86,6 +87,9 @@ impl<T> Node<T> {
     ///
     /// Search the smallest element that is greater than or equal to `value`,
     /// return which sub-tree we should navigate to.
+    ///
+    /// This function assumes that the keys in a node are sorted in an ascending
+    /// order.
     pub(crate) fn search_non_leaf_node<Q>(&self, value: &Q) -> usize
     where
         Q: PartialOrd,
@@ -102,8 +106,10 @@ impl<T> Node<T> {
 
         if let Some(idx) = idx_opt {
             if read_guard.keys[idx].deref().borrow() > value {
+                // `value` is smaller than this key, on the left.
                 idx
             } else {
+                // `value` is equal to this key, on the right.
                 idx + 1
             }
         } else {

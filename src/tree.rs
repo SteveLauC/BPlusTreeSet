@@ -202,11 +202,13 @@ where
     /// Assume `parent` is the parent node of `node`
     ///
     /// return
-    /// 1. `node`'s best sibling node
+    /// 1. `node_plug`: `node`'s best sibling node
     ///    > Maximize the possibility of coalescence.
     ///
-    /// 2. the value between `node` and its sibling
-    /// 3. Index of that value in 2
+    /// 2. `k_plus`: the value between `node` and its sibling
+    ///     > This is exactly `k` when splitting `node`
+    ///
+    /// 3. Index of `k_plus`
     /// 4. a bool value indicating whether `node` is a predecessor of `node_plus`
     ///
     /// # Note
@@ -260,9 +262,13 @@ where
         }
     }
 
-    /// Delete `value` and its pointer (if exists) from `node`.
+    /// Delete `value` and its `pointer` (if exists) from `node`.
     ///
-    /// This function is used recursively, use it at the leaf node first, i.e.,
+    /// > Technically not "its pointer", say the index of `value` in `node`
+    /// > is `i`, then the index of `pointer` would be `i+1`.
+    ///
+    /// This function will be used recursively when doing coalescence, use it
+    /// at the leaf node first, i.e.,
     ///
     /// ```ignore
     /// let (leaf, parents) = self.traverse_to_leaf_node_with_parents(value);
@@ -270,8 +276,10 @@ where
     /// ```
     ///
     /// `pointer` is `Option<>`al since we are implementing a set, we don't have
-    /// pointers in leaf node. In recursive calls, i.e., in internal nodes, this
-    /// argument should be `Some()`.
+    /// pointers in leaf node. In recursive calls, i.e., when dealing with internal
+    /// nodes using coalescence, we remove the node `node`(always the right node),
+    /// and we need to clear `k_plus`(key) and `node`(pointer) from the parent
+    /// node, then this argument should be `Some()`.
     fn delete_entry<Q>(
         &mut self,
         mut node: Node<T>,
@@ -315,14 +323,15 @@ where
             if self.can_fit_in_a_single_node(&node, &node_plus) {
                 // coalesce `node` and `node_plus`
 
-                // Switch them so that we can always append the entries in `node` to `node_plus`
+                // If `node` is on the left, swap it with `node_plus` so that
+                // we can always append the entries in `node` to `node_plus`
                 if is_predecessor {
                     std::mem::swap(&mut node, &mut node_plus);
                 }
 
                 if !node.is_leaf() {
                     node_plus.write().keys.push(Rc::clone(&k_plus));
-                    // This is ONLY needed for a internal node, because for leaf
+                    // This is ONLY needed for an internal node, because for leaf
                     // node, `k_plus` is the first entry in `node`
                     /*
                         # order = 4
@@ -352,6 +361,8 @@ where
                     }
                 }
 
+                // After the coalescence, `node` is dead now, we need to clear
+                // it from its parents.
                 self.delete_entry(parent, k_plus, Some(node), parents);
             } else {
                 // redistribution
@@ -421,17 +432,21 @@ where
     }
 
     /// Insert key and pointer `kp` to the parent node of `split`, i.e.,
-    /// `parents.pop().unwrap()`.
+    /// `parents.pop().unwrap()`, `kp.0` is the first key in the newly-split
+    /// node, `kp.1` is a pointer to that node.
     ///
     /// We have a vector of parent nodes as this operation can be recursive.
     ///
     /// # Recursion exits:
-    /// 1. The root node has just been split.
+    /// 1. The root node has just been split (depth + 1)
     /// 2. Split is no more triggered.
     fn insert_in_parent(&mut self, split: Node<T>, mut parents: Vec<Node<T>>, kp: (Rc<T>, Node<T>))
     where
         T: Ord,
     {
+        // This judgement, can be done by:
+        // 1. split.is_root()
+        // 2. parents.is_empty()
         if split.is_root() {
             // We are gonna do insertion on the parent node of `split`, but
             // unfortunately it does not have a parent node, no worries, we can
@@ -460,7 +475,7 @@ where
                 parent_write_guard.ptrs.insert(idx + 1, kp.1);
                 parent_write_guard.keys.insert(idx, kp.0);
             } else {
-                // split `parent_of_split` (non leaf node)
+                // split `parent_of_split` (non-leaf node)
                 let parent_plus = Node::new(parent_of_split.kind(), false);
                 let mut parent_write_guard = parent_of_split.write();
                 let mut tmp_keys = parent_write_guard.keys.drain(..).collect::<Vec<Rc<T>>>();
@@ -471,6 +486,20 @@ where
                 tmp_keys.insert(idx, kp.0);
                 tmp_ptrs.insert(idx + 1, kp.1);
 
+                /*
+                Let's assume the order is 3, then node tmp would be something like:
+
+                    Key Key Key
+                    Ptr Ptr Ptr Ptr
+
+                `parent` would get one key and two pointers, the middle key (`k`)
+                would be moved to the parent node of `parent`, and the last key
+                and two pointers would be placed in the newly-created node
+                `parent_plus`.
+
+                    Key(parent) Key(   k  ) Key(parent_plus)
+                    Ptr(parent) Ptr(parent) Ptr(parent_plus) Ptr(parent_plus)
+                 */
                 assert_eq!(tmp_keys.len(), order);
                 assert_eq!(tmp_ptrs.len(), order + 1);
 
@@ -486,6 +515,11 @@ where
 
                 assert!(!parent_write_guard.keys.is_empty());
                 assert!(!parent_plus_write_guard.keys.is_empty());
+                // such a constraint should be satisfied as this is an internal node.
+                assert_eq!(
+                    parent_plus_write_guard.keys.len() + 1,
+                    parent_plus_write_guard.ptrs.len()
+                );
 
                 drop(parent_write_guard);
                 drop(parent_plus_write_guard);
@@ -534,6 +568,8 @@ where
 
             let mut tmp = leaf_node_write_guard.keys.drain(..).collect::<Vec<Rc<T>>>();
             insert_into_vec(&mut tmp, value);
+            // not `tmp` has `order` keys
+            assert_eq!(tmp.len(), self.order);
 
             if !leaf_node_write_guard.ptrs.is_empty() {
                 assert_eq!(leaf_node_write_guard.ptrs.len(), 1);
@@ -553,7 +589,7 @@ where
             leaf_node_write_guard.keys.extend(tmp.drain(0..idx));
             leaf_node_plus_write_guard.keys = tmp;
 
-            // Duplication occurs here
+            // key duplication occurs here
             let k = Rc::clone(&leaf_node_plus_write_guard.keys[0]);
 
             assert!(!leaf_node_write_guard.keys.is_empty());
