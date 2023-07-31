@@ -320,6 +320,9 @@ where
             let (mut node_plus, k_plus, k_plus_idx, is_predecessor) =
                 BPlusTreeSet::find_sibling_and_k_plus(&parent, &node);
 
+            // No matter it is coalescence or redistribution, for non-leaf node,
+            // you need to take care of the `k_plus` key.
+
             if self.can_fit_in_a_single_node(&node, &node_plus) {
                 // coalesce `node` and `node_plus`
 
@@ -330,6 +333,12 @@ where
                 }
 
                 if !node.is_leaf() {
+                    // After the deletion, the node will have `n` keys and **`n+2`**
+                    // pointers, `k_plus` is the key that fulfill the gap.
+                    //
+                    // And, don't worry about that with the extra `k_plus` key,
+                    // these keys won't fit into a single node, internal nodes
+                    // cares about **pointers**.
                     node_plus.write().keys.push(Rc::clone(&k_plus));
                     // This is ONLY needed for an internal node, because for leaf
                     // node, `k_plus` is the first entry in `node`
@@ -343,6 +352,7 @@ where
                            /    \
                         [1, 2] - [3, 4]
                     */
+
                     node_plus.write().keys.append(&mut node.write().keys);
                     node_plus.write().ptrs.append(&mut node.write().ptrs);
                 } else {
